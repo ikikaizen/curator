@@ -1,0 +1,45 @@
+{
+  "name": "curator",
+  "displayName": "Curator",
+  "description": "Fast, readable side-by-side diffs for AI-generated code changes.",
+  "version": "0.0.1",
+  "publisher": "local",
+  "engines": { "vscode": "^1.80.0" },
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "curator-sidebar",
+          "title": "Curator",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "curator-sidebar": [
+        {
+          "id": "curator.changedFiles",
+          "name": "Tree"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "curator.showDiff",
+        "title": "Show Diff",
+        "category": "Curator"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^18.19.0",
+    "@types/vscode": "^1.80.0",
+    "typescript": "^5.3.0"
+  }
+}
