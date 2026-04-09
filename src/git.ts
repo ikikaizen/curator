@@ -1,6 +1,9 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { execFileSync } from 'child_process';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+
+const execFileAsync = promisify(execFile);
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 // Minimal subset of the official git extension API types.
@@ -19,6 +22,7 @@ export interface Repository {
     state: {
         workingTreeChanges: Change[]; // edited but not yet staged (not git add'd)
         indexChanges: Change[];       // staged and ready to commit (git add'd)
+        HEAD?: { commit?: string };   // current HEAD commit hash, changes after each commit
         onDidChange: vscode.Event<void>;
     };
 }
@@ -82,14 +86,32 @@ export function getChangedFiles(repo: Repository): Change[] {
     return [...repo.state.workingTreeChanges, ...repo.state.indexChanges];
 }
 
+// cache of repoRoot:filePath → HEAD content, invalidated when HEAD commit changes
+const headCache = new Map<string, string>();
+
+/**
+ * Clears the HEAD content cache.
+ * Call this after a commit so the left pane reflects the new HEAD.
+ */
+export function invalidateHeadCache(): void {
+    headCache.clear();
+}
+
 /**
  * Get the content of a file at HEAD.
+ * Results are cached per file until invalidateHeadCache() is called.
+ * Uses async execFile so large files don't block the UI thread.
  * Returns empty string for new files that don't exist in HEAD yet.
  */
-export function getHeadContent(repoRoot: string, filePath: string): string {
+export async function getHeadContent(repoRoot: string, filePath: string): Promise<string> {
+    const key = `${repoRoot}:${filePath}`;
+    if (headCache.has(key)) { return headCache.get(key)!; }
+
     const relative = path.relative(repoRoot, filePath).split(path.sep).join('/');
     try {
-        return execFileSync('git', ['show', `HEAD:${relative}`], { cwd: repoRoot, encoding: 'utf8' });
+        const { stdout } = await execFileAsync('git', ['show', `HEAD:${relative}`], { cwd: repoRoot, encoding: 'utf8' });
+        headCache.set(key, stdout);
+        return stdout;
     } catch {
         // new file that hasn't been committed yet — no HEAD version exists, so show an empty left pane
         console.warn(`Curator: no HEAD version for ${relative}`);

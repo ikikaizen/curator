@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { getRepo, getChangedFiles, Change } from './git';
+import { getRepo, getChangedFiles, invalidateHeadCache, Change } from './git';
 import { ChangedFilesProvider } from './tree';
 import { DiffProvider, toOriginalUri } from './diffProvider';
 
@@ -29,8 +29,24 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.workspace.registerTextDocumentContentProvider(DiffProvider.scheme, diffProvider)
     );
 
+    // tracks the last known HEAD commit to detect when a commit has been made
+    let lastHead: string | undefined = repo.state.HEAD?.commit;
+
     // load all changed files into the map and refresh the tree
     const load = () => {
+        // if HEAD changed, a commit just happened — invalidate the HEAD content cache
+        // so the left pane of the diff reflects the new committed version
+        const currentHead = repo.state.HEAD?.commit;
+        if (currentHead !== lastHead) {
+            // a commit just happened — clear the cache and tell VS Code to re-fetch
+            // the left pane for every open diff so it reflects the new HEAD
+            invalidateHeadCache();
+            for (const change of files.values()) {
+                diffProvider.refresh(change.uri);
+            }
+            lastHead = currentHead;
+        }
+
         files.clear();
         for (const c of getChangedFiles(repo)) {
             files.set(c.uri.fsPath, c);
@@ -38,11 +54,19 @@ export function activate(context: vscode.ExtensionContext): void {
         treeProvider.refresh();
     };
 
+    // debounce load so rapid git state changes (e.g. staging many files at once)
+    // are batched into a single update instead of thrashing the tree
+    let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+    const debouncedLoad = () => {
+        if (debounceTimer) { clearTimeout(debounceTimer); }
+        debounceTimer = setTimeout(load, 300);
+    };
+
     // run once on startup to populate the map
     load();
 
     // re-run load whenever git state changes (save, stage, commit, etc.)
-    const watcher = repo.state.onDidChange(load);
+    const watcher = repo.state.onDidChange(debouncedLoad);
 
     context.subscriptions.push(
         watcher,
