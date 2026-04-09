@@ -1,4 +1,6 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
+import { execFileSync } from 'child_process';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 // Minimal subset of the official git extension API types.
@@ -78,4 +80,19 @@ export function getRepo(workspaceUri: vscode.Uri): Repository | null {
  */
 export function getChangedFiles(repo: Repository): Change[] {
     return [...repo.state.workingTreeChanges, ...repo.state.indexChanges];
+}
+
+/**
+ * Get the content of a file at HEAD.
+ * Returns empty string for new files that don't exist in HEAD yet.
+ */
+export function getHeadContent(repoRoot: string, filePath: string): string {
+    const relative = path.relative(repoRoot, filePath).split(path.sep).join('/');
+    try {
+        return execFileSync('git', ['show', `HEAD:${relative}`], { cwd: repoRoot, encoding: 'utf8' });
+    } catch {
+        // new file that hasn't been committed yet — no HEAD version exists, so show an empty left pane
+        console.warn(`Curator: no HEAD version for ${relative}`);
+        return '';
+    }
 }
