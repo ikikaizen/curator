@@ -25,13 +25,7 @@
         }
       ]
     },
-    "commands": [
-      {
-        "command": "curator.showDiff",
-        "title": "Show Diff",
-        "category": "Curator"
-      }
-    ]
+    "commands": []
   },
   "scripts": {
     "compile": "tsc -p ./",
