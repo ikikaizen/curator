@@ -9,7 +9,7 @@ export class DiffProvider implements vscode.TextDocumentContentProvider {
 
     constructor(private repoRoot: string) {}
 
-    provideTextDocumentContent(uri: vscode.Uri): Promise<string> {
+    provideTextDocumentContent(uri: vscode.Uri): string {
         return getHeadContent(this.repoRoot, uri.path);
     }
 
