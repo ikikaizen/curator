@@ -83,16 +83,75 @@ export function getChangedFiles(repo: Repository): Change[] {
 }
 
 /**
- * Get the content of a file at HEAD.
- * Returns empty string for new files that don't exist in HEAD yet.
+ * Detect the upstream tracking branch for the current branch.
+ * Falls back to 'origin/main' if no upstream is configured.
  */
-export function getHeadContent(repoRoot: string, filePath: string): string {
+export function getUpstreamRef(repoRoot: string): string {
+    try {
+        return execFileSync(
+            'git', ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'],
+            { cwd: repoRoot, encoding: 'utf8' }
+        ).trim();
+    } catch {
+        return 'origin/main';
+    }
+}
+
+/**
+ * Get all files that differ between the upstream remote ref and the working tree.
+ * This includes committed-but-not-pushed changes as well as staged/unstaged changes.
+ */
+export function getRemoteChangedFiles(repoRoot: string): Change[] {
+    const upstream = getUpstreamRef(repoRoot);
+    try {
+        const output = execFileSync(
+            'git', ['diff', '--name-status', upstream],
+            { cwd: repoRoot, encoding: 'utf8' }
+        );
+        return parseNameStatus(output, repoRoot);
+    } catch {
+        return [];
+    }
+}
+
+/**
+ * Get the content of a file at the given git ref.
+ * Returns empty string if the file doesn't exist at that ref (e.g. new file).
+ */
+export function getRefContent(repoRoot: string, ref: string, filePath: string): string {
     const relative = path.relative(repoRoot, filePath).split(path.sep).join('/');
     try {
-        return execFileSync('git', ['show', `HEAD:${relative}`], { cwd: repoRoot, encoding: 'utf8' });
+        return execFileSync('git', ['show', `${ref}:${relative}`], { cwd: repoRoot, encoding: 'utf8' });
     } catch {
-        // new file that hasn't been committed yet — no HEAD version exists, so show an empty left pane
-        console.warn(`Curator: no HEAD version for ${relative}`);
+        console.warn(`Curator: no content for ${relative} at ${ref}`);
         return '';
+    }
+}
+
+// ─── Internal helpers ─────────────────────────────────────────────────────────
+
+function parseNameStatus(output: string, repoRoot: string): Change[] {
+    const changes: Change[] = [];
+    for (const line of output.trim().split('\n')) {
+        if (!line) { continue; }
+        const parts = line.split('\t');
+        // For renames/copies the format is "R100\told\tnew" — take the last part as the working path
+        const filePath = parts[parts.length - 1];
+        const statusChar = parts[0][0];
+        changes.push({
+            uri: vscode.Uri.file(path.join(repoRoot, filePath)),
+            status: charToChangeStatus(statusChar),
+        });
+    }
+    return changes;
+}
+
+function charToChangeStatus(char: string): ChangeStatus {
+    switch (char) {
+        case 'A': return ChangeStatus.IndexAdded;
+        case 'D': return ChangeStatus.Deleted;
+        case 'R': return ChangeStatus.IndexRenamed;
+        case 'C': return ChangeStatus.IndexCopied;
+        default:  return ChangeStatus.Modified;
     }
 }
